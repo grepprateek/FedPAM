@@ -1,0 +1,16 @@
+fc-fedpam:
+  input:
+    dataset_loc: "client.csv"
+    target: 'Target'
+  split:
+    mode: "file"
+    dir: "."  
+  mu: 0.7
+  lam: 0.3
+  bootstrap_iterations: 100
+  bootstrap_min_iterations: 5 
+  bootstrap_patience: 5
+  max_iterations: 100
+  fl_min_iterations: 5 
+  fl_patience: 5     
+  homogeneous: False

@@ -1,0 +1,14 @@
+featurecloud
+bottle
+numpy
+matplotlib
+jsonpickle
+joblib
+pyyaml
+pandas
+pgmpy
+networkx
+torch
+scikit-learn
+seaborn
+scikit-image
