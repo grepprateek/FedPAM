@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bayestitch</title>
+
+  <link rel="stylesheet" href="upload_style.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Boldonse&display=swap" rel="stylesheet">
+    
+<link href="https://fonts.googleapis.com/css2?family=Ubuntu+Condensed&display=swap" rel="stylesheet">
+</head>
+
+<body>
+  <section class="header_bar">
+    <div class="logo">
+      <a href="../index.html">Bayestitch</a>
+    </div>
+
+    <nav class="nav">
+      <a href="#">Documentation</a>
+      <a href="#">About</a>
+    </nav>
+  </section>
+
+  <main class="upload_data">
+    <section class="upload_left">
+      <h2>Upload network structure</h2>
+      <p>
+        In this step, you need to upload the JSON or CSV file associated with your network structure.
+        Please select the appropriate network type that you wish to visualize and click on Visualize to see the results.
+      </p>
+    </section>
+
+    <section class="upload_right" aria-label="Upload controls">
+      <h3>Network Type</h3>
+      <div class="option_row">
+        <input type="radio" id="static" name="networkType" value="static" checked />
+        <label for="static" class="option_box">Static</label>
+
+        <input type="radio" id="dynamic" name="networkType" value="dynamic" />
+        <label for="dynamic" class="option_box">Dynamic</label>
+      </div>
+
+      <h3>File Type</h3>
+      <div class="option_row">
+        <input type="radio" id="json" name="fileType" value="json" checked />
+        <label for="json" class="option_box">JSON</label>
+
+        <input type="radio" id="csv" name="fileType" value="csv" />
+        <label for="csv" class="option_box">CSV</label>
+      </div>
+
+      <h3>Choose network file</h3>
+      <div class="upload_file">
+        <input type="file" id="fileInput" accept=".json,.csv" />
+        <label for="fileInput" class="file_label">Browse locally</label>
+        <span id="fileName">No file selected</span>
+      </div>
+
+      
+    </section>
+    <div class="visualization_button" id="visualizeButton">
+      <a href="../visualization_page/vis_index.html">Visualize</a>
+    </div>
+  </main>
+
+  <footer>
+    © 2026 Made without love. All rights reserved.
+  </footer>
+
+  <script src="upload_script.js"></script>
+</body>
+</html>

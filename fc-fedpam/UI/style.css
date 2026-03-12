@@ -1,0 +1,144 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+html, body {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 4l7.07 17 2.51-7.39L21 11.07z'/%3E%3C/svg%3E"), auto;
+  min-height: 100vh;
+}
+a, button { cursor: pointer; }
+body {
+  font-family: 'Ubuntu Condensed', sans-serif;
+  padding-top: 80px;
+  padding-bottom: 60px;
+  overflow-x: hidden;
+  background-color: #efe9db;
+  background-image:
+    radial-gradient(1050px 780px at 36% 48%,
+      rgba(110, 165, 215, 0.88) 0%,
+      rgba(110, 165, 215, 0.52) 34%,
+      rgba(110, 165, 215, 0.22) 52%,
+      transparent 66%),
+    radial-gradient(900px 680px at 30% 72%,
+      rgba(110, 165, 215, 0.72) 0%,
+      rgba(110, 165, 215, 0.34) 40%,
+      transparent 68%),
+    radial-gradient(1150px 820px at 64% 48%,
+      rgba(225, 120, 80, 0.94) 0%,
+      rgba(225, 120, 80, 0.56) 34%,
+      rgba(225, 120, 80, 0.24) 52%,
+      transparent 67%),
+    radial-gradient(980px 720px at 70% 74%,
+      rgba(225, 120, 80, 0.78) 0%,
+      rgba(225, 120, 80, 0.36) 40%,
+      transparent 70%),
+    radial-gradient(900px 650px at 50% 55%,
+      rgba(190, 150, 140, 0.22) 0%,
+      transparent 70%);
+  background-repeat: no-repeat;
+  background-size: cover;
+  background-attachment: fixed;
+}
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image: url("https://grainy-gradients.vercel.app/noise.svg");
+  background-size: 140px 140px;
+  opacity: 0.22;
+  mix-blend-mode: multiply;
+}
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image: url("https://grainy-gradients.vercel.app/noise.svg");
+  background-size: 90px 90px;
+  opacity: 0.10;
+  mix-blend-mode: soft-light;
+}
+.header_bar,
+.landing_content,
+footer {
+  position: relative;
+  z-index: 1;
+}
+.header_bar {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 40px;
+  background: transparent;
+  color: black;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+.logo { font-size: 24px; font-weight: bold; }
+.logo a { text-decoration: none; color: black; }
+.nav { display: flex; gap: 20px; font-size: 1em; }
+.nav a { text-decoration: none; color: black; transition: all 0.3s; }
+.nav a:hover { text-decoration: underline; text-underline-offset: 5px; }
+.landing_content {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  height: 400px;
+  width: 700px;
+  margin: 12em auto;
+  gap: 2em;
+  padding: 2.2em;
+}
+.landing_content::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 14px;
+  pointer-events: none;
+  background-size: 140px 140px;
+  opacity: 0.10;
+  mix-blend-mode: multiply;
+}
+.landing_text h1 {
+  font-family: 'Boldonse';
+  font-size: 50px;
+  color: black;
+}
+.landing_text p {
+  padding-top: 20px;
+  font-family: "Ubuntu Condensed", sans-serif;
+  text-align: justify;
+  font-size: 20px;
+  line-height: 1.6;
+  color: #111;
+}
+.landing_button a {
+  display: inline-block;
+  background-color: black;
+  color: white;
+  padding: 1em 2em;
+  font-size: 1.2em;
+  font-weight: 600;
+  border: 5px solid black;
+  border-radius: 8px;
+  text-decoration: none;
+  transition: all 0.3s ease;
+}
+.landing_button a:hover { opacity: 0.75; }
+footer {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  text-align: center;
+  padding: 20px;
+  background: transparent;
+  color: black;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
