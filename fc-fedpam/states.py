@@ -388,17 +388,14 @@ class LocalComputationState(AppState):
             else:
                 self.log(f"[CLIENT] Heterogeneous mode - Local DAG at Iteration {iteration} "
                          f"(weighted by refined local PAM): {best_dag.edges()}")
-            
-            
+
             participant.visualize_pam(local_pam, os.path.join(output_dir, f"refined_local_pam_{iteration}.png"))
-            
-            
+
             if iteration > 1:
                 global_pam_viz = self.load('global_pam_local')
                 participant.visualize_pam(global_pam_viz, os.path.join(output_dir, f"global_pam_{iteration}.png"))
 
-        
-        
+
         participant_sparse_pam = participant.pam_to_sparse(local_pam)
         
         participant_payload = {
@@ -409,12 +406,9 @@ class LocalComputationState(AppState):
             "client_threshold": best_tau
         }
         
-        
-        
         if homogeneous and iteration > 1 and global_beta_params is not None:
             participant_payload["client_betas"] = global_beta_params
             self.log(f"[Iteration {iteration}] HOMOGENEOUS: Sending global-DAG beta parameters for aggregation")
-        
         
         pbytes = payload_size_bytes(participant_payload)
         self.log(f"[PAYLOAD] Client->Coordinator payload size: {pbytes} bytes")
@@ -495,9 +489,7 @@ class AggregationState(AppState):
         avg_bic = sum(bic * weight for bic, weight in zip(clients_bics, clients_weights))
         self.log(f"[COORDINATOR] Iteration {iteration} Average BIC: {avg_bic:.2f}")
         
-        
         if iteration == 1:
-            
             self.store('bic_history', [avg_bic])
             self.store('best_avg_bic', avg_bic)
             self.store('iterations_without_improvement', 0)
@@ -507,11 +499,8 @@ class AggregationState(AppState):
             bic_history = self.load('bic_history')
             best_avg_bic = self.load('best_avg_bic')
             iterations_without_improvement = self.load('iterations_without_improvement')
-            
-            
             bic_history.append(avg_bic)
             self.store('bic_history', bic_history)
-            
             
             if avg_bic > best_avg_bic:
                 improvement = avg_bic - best_avg_bic
@@ -571,7 +560,6 @@ class AggregationState(AppState):
             global_dag_weights = {(u, v): float(global_pam.loc[u, v]) 
                                  for (u, v) in global_dag_edges
                                  if u in global_pam.index and v in global_pam.columns}
-        
         
         global_pam_sparse = coordinator.pam_to_sparse(global_pam)
         total_possible = len(global_pam) * len(global_pam)

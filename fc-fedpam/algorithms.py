@@ -44,7 +44,6 @@ class Client():
     def visualize_network(self, graph_or_model, filename='bayesian_network.png', target='Target', edge_weights=None):
         
         if hasattr(graph_or_model, 'edges'):
-            
             G = nx.DiGraph()
             G.add_edges_from(graph_or_model.edges())
         else:
@@ -57,7 +56,6 @@ class Client():
         simple_nodes = [node for node in G.nodes() if node != target]
         has_target = target in G.nodes()
 
-        
         if simple_nodes:
             nx.draw_networkx_nodes(G, pos, 
                                 nodelist = simple_nodes,
@@ -70,7 +68,6 @@ class Client():
             nx.draw_networkx_labels(G, pos,
                                     labels = {n: n for n in simple_nodes},
                                     font_size = 15)
-        
         
         if has_target:
             nx.draw_networkx_nodes(G, pos, 
@@ -86,7 +83,6 @@ class Client():
                                     font_size = 18,
                                     font_weight = 'bold')
         
-        
         if edge_weights is not None:
             
             if isinstance(edge_weights, pd.DataFrame):
@@ -95,23 +91,20 @@ class Client():
                               if i in edge_weights.index and j in edge_weights.columns}
             else:
                 weight_dict = edge_weights
-            
-            
+               
             edge_widths = []
             edge_labels = {}
             for (u, v) in G.edges():
                 weight = weight_dict.get((u, v), 0.5)
                 edge_widths.append(weight * 5)  
                 edge_labels[(u, v)] = f'{weight:.2f}'
-            
-            
+              
             nx.draw_networkx_edges(G, pos,
                                 edgelist = G.edges(),
                                 width = edge_widths,
                                 arrowsize = 25,
                                 alpha = 0.6,
                                 connectionstyle = 'arc3, rad = 0.1')
-            
             
             nx.draw_networkx_edge_labels(G, pos, edge_labels, 
                                         font_size = 10,
@@ -120,7 +113,6 @@ class Client():
                                                    edgecolor='gray',
                                                    alpha=0.7))
         else:
-            
             nx.draw_networkx_edges(G, pos,
                                 edgelist = G.edges(),
                                 arrowsize = 25,
@@ -169,18 +161,12 @@ class Client():
             
             
             if i >= min_iterations - 1:
-                
                 bic_scorer = BIC(bootstrap_sample)
                 total_bic = bic_scorer.score(bootstrap_model)
-                
-                
                 bic_scores.append(total_bic)
-                
-                
                 current_avg_bic = np.mean(bic_scores)
                 
                 print(f"\n  Bootstrap {i+1}: Total BIC = {total_bic:.2f}, Avg BIC = {current_avg_bic:.2f}")
-                
                 
                 if current_avg_bic > best_avg_bic:
                     improvement = current_avg_bic - best_avg_bic
@@ -263,9 +249,7 @@ class Client():
         ax3.set_ylabel('AUROC-OVR', fontsize=12)
         ax3.set_title('AUROC One-vs-Rest (5-Fold CV)', fontsize=14, fontweight='bold')
         ax3.set_ylim([0, 1])
-        ax3.grid(True, alpha=0.3)
-        
-        
+        ax3.grid(True, alpha=0.3)       
         ax4 = axes[1, 1]
         ax4.plot(iterations, metrics_history['edges'], 'o-', color='#e74c3c', linewidth=2, markersize=8)
         ax4.set_xlabel('Iteration', fontsize=12)
@@ -293,7 +277,6 @@ class Client():
         if verbose:
             print(f"Initial edge count: {G.number_of_edges()}")
 
-        
         edges_to_remove = []
         for u, v in G.edges():
             if G.has_edge(v, u):  
@@ -308,7 +291,6 @@ class Client():
         if verbose:
             print(f"Removed {len(edges_to_remove)} reciprocal edges.")
 
-        
         cycle_breaks = 0
         while not nx.is_directed_acyclic_graph(G):
             if cycle_breaks >= max_cycle_breaks:
@@ -339,8 +321,6 @@ class Client():
 
             for node in dag:
                 parents = list(dag[node])
-
-                
                 bic_current, model_current = self.get_bic_model(
                     dataset=dataset,
                     node=node,
@@ -351,12 +331,10 @@ class Client():
                 improved = True
                 while improved and len(parents) > 0:
                     improved = False
-
                     best_bic = bic_current
                     best_remove = None
                     best_model = model_current
 
-                    
                     for p in parents:
                         candidate = [q for q in parents if q != p]
 
@@ -610,10 +588,7 @@ class Client():
     def sparse_to_pam(self, sparse_data):
         nodes = sparse_data['nodes']
         edges = sparse_data['edges']
-        
-        
         pam = pd.DataFrame(0.0, index=nodes, columns=nodes)
-        
         
         for (source, target, weight) in edges:
             if source in pam.index and target in pam.columns:
@@ -643,7 +618,6 @@ class Client():
             encoded_parts.append(dummy_vars_i)
             col_ranges[variable] = slice(current_col, current_col + num_dummy_vars_i)
             current_col += num_dummy_vars_i
-
         
         intercept_col = np.ones((num_observations, 1))
         X_mat = np.hstack([intercept_col] + encoded_parts)
@@ -841,31 +815,21 @@ class Client():
         return y_pred, y_proba
     
     def save_predictions_to_csv(self, dag, dataset, output_path, target='Target', params=None):
-        
         df_with_predictions = dataset.copy()
-        
-        
         if params is None:
             params = self.estimate_multilogit_params(dag, dataset)
         
-        
         y_pred, y_proba = self.predict_target(dag, params, dataset, target)
         
-        
         levels = sorted(dataset[target].unique())
-        
         
         pred_col = f'Predicted_{target}'
         df_with_predictions[pred_col] = [levels[idx] for idx in y_pred]
         
-        
         for idx, level in enumerate(levels):
             df_with_predictions[f'Probability_{level}'] = y_proba[:, idx]
-        
-        
+
         df_with_predictions['Prediction_Confidence'] = y_proba.max(axis=1)
-        
-        
         df_with_predictions.to_csv(output_path, index=False)
         
         print(f"Predictions saved to: {output_path}")
