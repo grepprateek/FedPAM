@@ -2,6 +2,65 @@
   const visEl  = document.querySelector(".visualization");
   const descEl = document.querySelector(".node_desc");
   const infEl  = document.querySelector(".node_inference");
+  const normalizeEdgeList = (edgeLike) => {
+    if (!Array.isArray(edgeLike)) return [];
+    return edgeLike
+      .map((e) => {
+        if (Array.isArray(e) && e.length >= 2) {
+          return { from: String(e[0]), to: String(e[1]) };
+        }
+        if (e && typeof e === "object") {
+          return { from: String(e.from ?? e.source), to: String(e.to ?? e.target) };
+        }
+        return null;
+      })
+      .filter((e) => e && e.from && e.to);
+  };
+  const toObjectMap = (value) => {
+    if (!value) return {};
+    if (typeof value === "string") {
+      try {
+        return toObjectMap(JSON.parse(value));
+      } catch (_) {
+        return {};
+      }
+    }
+    if (Array.isArray(value)) {
+      const out = {};
+      for (const item of value) {
+        if (!item || typeof item !== "object") continue;
+        const key = item.node ?? item.id ?? item.name;
+        const params = item.params ?? item.value ?? item.beta ?? item;
+        if (key !== undefined) out[String(key)] = params;
+      }
+      return out;
+    }
+    if (typeof value === "object") return value;
+    return {};
+  };
+  const resolveBetaParams = (obj) => {
+    const directCandidates = [
+      obj?.beta_parameters,
+      obj?.global_betas,
+      obj?.betas,
+      obj?.parameters,
+      obj?.params,
+      obj?.model_params,
+      obj?.final_global_params,
+      obj?.final_local_params,
+    ];
+    for (const c of directCandidates) {
+      const mapped = toObjectMap(c);
+      if (Object.keys(mapped).length) return mapped;
+    }
+    const nestedCandidates = [obj?.network, obj?.model, obj?.result, obj?.payload];
+    for (const n of nestedCandidates) {
+      if (!n || typeof n !== "object") continue;
+      const mapped = resolveBetaParams(n);
+      if (Object.keys(mapped).length) return mapped;
+    }
+    return {};
+  };
   const raw = sessionStorage.getItem("bayestitch_network");
   if (!raw) {
     descEl.textContent = "No network found. Go back and upload a JSON/CSV first.";
@@ -9,13 +68,29 @@
     return;
   }
   const bn = JSON.parse(raw);
-  const nodes = bn.nodes.map((n) => ({
-    id:          String(n.id),
-    label:       n.label ?? n.id,
-    states:      Array.isArray(n.states) ? n.states : undefined,
-    description: n.description ?? "",
-  }));
-  const edges = bn.edges.map((e) => ({ from: String(e.from), to: String(e.to) }));
+  const betaParams = resolveBetaParams(bn);
+  const edges = normalizeEdgeList(
+    bn?.dag?.edges ?? bn.dag_edges ?? bn.global_dag_edges ?? bn.edges ?? []
+  );
+  const baseNodes = Array.isArray(bn.nodes) ? bn.nodes : [];
+  const nodeIds = new Set(baseNodes.map((n) => String(n.id ?? n.name ?? n.label)));
+  edges.forEach((e) => {
+    nodeIds.add(e.from);
+    nodeIds.add(e.to);
+  });
+  Object.keys(betaParams || {}).forEach((nid) => nodeIds.add(String(nid)));
+  const nodes = [...nodeIds].map((id) => {
+    const existing = baseNodes.find((n) => String(n.id ?? n.name ?? n.label) === id) || {};
+    const beta = betaParams?.[id];
+    return {
+      id: String(id),
+      label: existing.label ?? existing.id ?? id,
+      states: Array.isArray(existing.states)
+        ? existing.states.map(String)
+        : (Array.isArray(beta?.classes) ? beta.classes.map(String) : undefined),
+      description: existing.description ?? "",
+    };
+  });
   const byId       = new Map(nodes.map((n) => [n.id, n]));
   const parentsOf  = new Map(nodes.map((n) => [n.id, []]));
   const childrenOf = new Map(nodes.map((n) => [n.id, []]));
@@ -39,6 +114,190 @@
       });
     }
     return combo.split(",").map((v) => v.trim());
+  }
+  function asArray(v) {
+    if (Array.isArray(v)) return v;
+    if (typeof v === "number") return [v];
+    return [];
+  }
+  function normalizeProbabilities(probs, expectedLen) {
+    const arr = asArray(probs).map((v) => +v);
+    const safe = arr.filter((v) => Number.isFinite(v) && v >= 0);
+    if (!safe.length) return Array.from({ length: expectedLen }, () => 1 / expectedLen);
+    let out = safe;
+    if (safe.length !== expectedLen) {
+      if (safe.length === 1 && expectedLen === 2) out = [1 - safe[0], safe[0]];
+      else if (safe.length < expectedLen) {
+        out = [...safe, ...Array.from({ length: expectedLen - safe.length }, () => 0)];
+      } else {
+        out = safe.slice(0, expectedLen);
+      }
+    }
+    const sum = out.reduce((a, b) => a + b, 0);
+    if (sum <= 0) return Array.from({ length: expectedLen }, () => 1 / expectedLen);
+    return out.map((v) => v / sum);
+  }
+  function softmax(logits) {
+    const max = Math.max(...logits);
+    const exps = logits.map((v) => Math.exp(v - max));
+    const sum = exps.reduce((a, b) => a + b, 0) || 1;
+    return exps.map((v) => v / sum);
+  }
+  function getNodeStates(nodeId) {
+    const n = byId.get(nodeId);
+    if (Array.isArray(n?.states) && n.states.length) return n.states.map(String);
+    const cpt = bn.cpts?.[nodeId];
+    if (Array.isArray(cpt?.states) && cpt.states.length) return cpt.states.map(String);
+    const b = betaParams?.[nodeId];
+    if (Array.isArray(b?.classes) && b.classes.length) return b.classes.map(String);
+    const inter = asArray(b?.intercept);
+    if (inter.length > 1) return inter.map((_, i) => String(i));
+    return ["0", "1"];
+  }
+  function defaultFill(nodeId) {
+    return bn.cpts?.[nodeId] ? "#fbc5bb" : "#e0e0e0";
+  }
+  function cptLookup(nodeId, stateVal, assignment) {
+    const cpt = bn.cpts?.[nodeId];
+    if (!cpt || !cpt.cpt) return null;
+    const parents = Array.isArray(cpt.parents) ? cpt.parents : [];
+    const states  = Array.isArray(cpt.states)  ? cpt.states  : getNodeStates(nodeId);
+    let prob = null;
+    for (const [combo, probs] of Object.entries(cpt.cpt)) {
+      const vals = parseCombo(combo);
+      const matches = parents.every((pid, i) => {
+        const assignedVal = assignment[pid];
+        return assignedVal === undefined || String(vals[i]) === String(assignedVal);
+      });
+      if (matches || parents.length === 0) {
+        const stateIdx = states.indexOf(String(stateVal));
+        if (Array.isArray(probs)) {
+          prob = stateIdx >= 0 ? +probs[stateIdx] : null;
+        } else if (typeof probs === "object" && probs !== null) {
+          prob = probs[stateVal] !== undefined ? +probs[stateVal] : null;
+        } else {
+          prob = stateIdx === 0 ? +probs : (1 - +probs);
+        }
+        if (parents.length === 0) break;
+        if (matches) break;
+      }
+    }
+    return prob;
+  }
+  function encodeValueForParent(parentId, value) {
+    if (value === undefined || value === null) return 0;
+    if (typeof value === "number") return value;
+    const n = Number(value);
+    if (Number.isFinite(n)) return n;
+    const states = getNodeStates(parentId);
+    const idx = states.indexOf(String(value));
+    return idx >= 0 ? idx : 0;
+  }
+  function predictNodeDistribution(nodeId, assignment) {
+    const states = getNodeStates(nodeId);
+    const b = betaParams?.[nodeId];
+    if (!b) return normalizeProbabilities([], states.length);
+    if (!Array.isArray(b.coefficients)) {
+      return normalizeProbabilities(b.intercept, states.length);
+    }
+    const parents = Array.isArray(b.parents) ? b.parents : [];
+    const coeff = b.coefficients.map((row) => asArray(row).map((v) => +v));
+    const inter = asArray(b.intercept).map((v) => +v);
+    const x = parents.map((pid) => encodeValueForParent(pid, assignment[pid]));
+    if (coeff.length === 1) {
+      const row = coeff[0];
+      const score = row.reduce((sum, c, i) => sum + c * (x[i] ?? 0), 0) + (inter[0] ?? 0);
+      const p1 = 1 / (1 + Math.exp(-score));
+      return normalizeProbabilities([1 - p1, p1], states.length);
+    }
+    const logits = coeff.map((row, r) =>
+      row.reduce((sum, c, i) => sum + c * (x[i] ?? 0), 0) + (inter[r] ?? 0)
+    );
+    return normalizeProbabilities(softmax(logits), states.length);
+  }
+  function getStateProbability(nodeId, stateVal, assignment) {
+    const cptProb = cptLookup(nodeId, stateVal, assignment);
+    if (cptProb !== null && Number.isFinite(cptProb)) return cptProb;
+    const states = getNodeStates(nodeId);
+    const probs = predictNodeDistribution(nodeId, assignment);
+    const idx = states.indexOf(String(stateVal));
+    if (idx < 0) return 0;
+    return probs[idx] ?? 0;
+  }
+  function topologicalNodeIds() {
+    const ids = nodes.map((n) => n.id);
+    const indeg = new Map(ids.map((id) => [id, 0]));
+    for (const e of edges) indeg.set(e.to, (indeg.get(e.to) ?? 0) + 1);
+    const q = ids.filter((id) => (indeg.get(id) ?? 0) === 0);
+    const out = [];
+    while (q.length) {
+      const u = q.shift();
+      out.push(u);
+      for (const c of childrenOf.get(u) ?? []) {
+        indeg.set(c, (indeg.get(c) ?? 0) - 1);
+        if ((indeg.get(c) ?? 0) === 0) q.push(c);
+      }
+    }
+    return out.length === ids.length ? out : ids;
+  }
+  function buildBetaTable(nodeId) {
+    const b = betaParams?.[nodeId];
+    if (!b) {
+      return `<div style="opacity:.65;font-size:13px;">No beta parameters available for this node.</div>`;
+    }
+    const parents = Array.isArray(b.parents) ? b.parents : [];
+    const classes = getNodeStates(nodeId);
+    const intercept = asArray(b.intercept);
+    const coefficients = Array.isArray(b.coefficients)
+      ? b.coefficients.map((r) => asArray(r))
+      : [];
+    const interRows = intercept.length
+      ? intercept.map((v, i) => `<tr><td>${escapeHtml(classes[i] ?? String(i))}</td><td>${(+v).toFixed(4)}</td></tr>`).join("")
+      : `<tr><td colspan="2" style="opacity:.7;">No intercept values</td></tr>`;
+    const coefHeader = parents.length
+      ? parents.map((p) => `<th>${escapeHtml(p)}</th>`).join("")
+      : "<th>—</th>";
+    const coefRows = coefficients.length
+      ? coefficients.map((row, i) => {
+          const cells = parents.length
+            ? parents.map((_, j) => `<td>${((+row[j]) || 0).toFixed(4)}</td>`).join("")
+            : "<td>—</td>";
+          return `<tr><td>${escapeHtml(classes[i] ?? String(i))}</td>${cells}</tr>`;
+        }).join("")
+      : `<tr><td colspan="${parents.length + 1}" style="opacity:.7;">No coefficient matrix (root/marginal node)</td></tr>`;
+    return `
+      <div style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;">
+          <thead>
+            <tr style="background:rgba(0,0,0,0.08);">
+              <th>Class</th><th>Intercept</th>
+            </tr>
+          </thead>
+          <tbody>${interRows}</tbody>
+        </table>
+      </div>
+      <div style="height:8px;"></div>
+      <div style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;">
+          <thead>
+            <tr style="background:rgba(0,0,0,0.08);">
+              <th>Class</th>${coefHeader}
+            </tr>
+          </thead>
+          <tbody>${coefRows}</tbody>
+        </table>
+      </div>
+      <style>
+        .node_desc table th, .node_desc table td {
+          padding: 5px 10px;
+          border: 1px solid rgba(0,0,0,0.15);
+          text-align: center;
+          white-space: nowrap;
+        }
+        .node_desc table tbody tr:nth-child(even) { background: rgba(0,0,0,0.04); }
+        .node_desc table tbody tr:hover            { background: rgba(0,0,0,0.08); }
+      </style>
+    `;
   }
   function buildCptTable(cpt) {
     const states     = Array.isArray(cpt.states) ? cpt.states : [];
@@ -91,43 +350,6 @@
       </style>
     `;
   }
-  function defaultFill(nodeId) {
-    return bn.cpts?.[nodeId] ? "#fbc5bb" : "#e0e0e0";
-  }
-  function getNodeStates(nodeId) {
-    const n = byId.get(nodeId);
-    if (n?.states?.length) return n.states;
-    const cpt = bn.cpts?.[nodeId];
-    if (cpt?.states?.length) return cpt.states;
-    return ["T", "F"];
-  }
-  function cptLookup(nodeId, stateVal, assignment) {
-    const cpt = bn.cpts?.[nodeId];
-    if (!cpt || !cpt.cpt) return null;
-    const parents = Array.isArray(cpt.parents) ? cpt.parents : [];
-    const states  = Array.isArray(cpt.states)  ? cpt.states  : ["T", "F"];
-    let prob = null;
-    for (const [combo, probs] of Object.entries(cpt.cpt)) {
-      const vals = parseCombo(combo);
-      const matches = parents.every((pid, i) => {
-        const assignedVal = assignment[pid];
-        return assignedVal === undefined || String(vals[i]) === String(assignedVal);
-      });
-      if (matches || parents.length === 0) {
-        const stateIdx = states.indexOf(String(stateVal));
-        if (Array.isArray(probs)) {
-          prob = stateIdx >= 0 ? +probs[stateIdx] : null;
-        } else if (typeof probs === "object" && probs !== null) {
-          prob = probs[stateVal] !== undefined ? +probs[stateVal] : null;
-        } else {
-          prob = stateIdx === 0 ? +probs : (1 - +probs);
-        }
-        if (parents.length === 0) break;
-        if (matches) break;
-      }
-    }
-    return prob;
-  }
   function enumerateAll(nodeIds, fixedEvidence) {
     const statesList = nodeIds.map((id) => getNodeStates(id));
     const results = [];
@@ -146,9 +368,9 @@
   }
   function jointProb(assignment) {
     let p = 1;
-    for (const n of nodes) {
-      const prob = cptLookup(n.id, assignment[n.id], assignment);
-      if (prob === null) return null;
+    for (const nodeId of topologicalNodeIds()) {
+      const prob = getStateProbability(nodeId, assignment[nodeId], assignment);
+      if (!Number.isFinite(prob)) return null;
       p *= prob;
     }
     return p;
@@ -247,7 +469,7 @@
       if (!result) {
         resultEl.innerHTML = `
           <div style="color:#c0392b;font-size:12px;">
-            Could not compute — ensure all nodes have CPTs in your JSON.
+            Could not compute from beta parameters for this selection.
           </div>`;
         return;
       }
@@ -577,17 +799,9 @@
       }
     }
     const cpt = bn.cpts?.[nodeId];
-    if (!cpt) {
-      descEl.innerHTML = `
-        <div style="display:flex;flex-direction:column;gap:8px;">
-          <div style="font-weight:600;">${escapeHtml(n.label ?? n.id)}</div>
-          <div style="opacity:.65;font-size:13px;">No CPT provided for this node.</div>
-          <div style="opacity:.5;font-size:12px;">Include a "cpts" object in your JSON to display it here.</div>
-        </div>
-      `;
-    } else {
+    if (cpt) {
       const parentsLine = Array.isArray(cpt.parents) ? cpt.parents.join(", ") : "";
-      const states      = Array.isArray(cpt.states)  ? cpt.states             : [];
+      const states = Array.isArray(cpt.states) ? cpt.states : getNodeStates(nodeId);
       descEl.innerHTML = `
         <div style="display:flex;flex-direction:column;gap:10px;">
           <div style="font-weight:600;">${escapeHtml(n.label ?? n.id)}</div>
@@ -597,6 +811,29 @@
             <strong>States:</strong> ${escapeHtml(states.join(", ") || "—")}
           </div>
           ${buildCptTable(cpt)}
+        </div>
+      `;
+    } else if (!betaParams?.[nodeId]) {
+      descEl.innerHTML = `
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <div style="font-weight:600;">${escapeHtml(n.label ?? n.id)}</div>
+          <div style="opacity:.65;font-size:13px;">No CPT provided for this node.</div>
+          <div style="opacity:.5;font-size:12px;">Include a cpts object in your JSON to display it here.</div>
+        </div>
+      `;
+    } else {
+      const beta = betaParams[nodeId];
+      const parentsLine = Array.isArray(beta?.parents) ? beta.parents.join(", ") : "";
+      const states = getNodeStates(nodeId);
+      descEl.innerHTML = `
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          <div style="font-weight:600;">${escapeHtml(n.label ?? n.id)}</div>
+          <div style="font-size:12px;opacity:.75;">
+            <strong>Parents:</strong> ${escapeHtml(parentsLine || "None")}
+            &nbsp;·&nbsp;
+            <strong>States:</strong> ${escapeHtml(states.join(", ") || "—")}
+          </div>
+          ${buildBetaTable(nodeId)}
         </div>
       `;
     }

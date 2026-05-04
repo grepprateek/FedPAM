@@ -1095,3 +1095,197 @@ class Coordinator(Client):
                 }
         
         return aggregated_betas
+    
+    def create_beta_ordering(self, dag_edges, dataset):
+        """
+        Create canonical ordering for beta parameters based on DAG structure.
+        This ensures all clients flatten their betas in the same order.
+        
+        Returns:
+            node_order: list of node names in topological order
+            param_positions: dict mapping node -> {'intercept': (start, end), 'coefficients': (start, end)}
+            total_params: total number of scalar parameters
+        """
+        import networkx as nx
+        
+        G = nx.DiGraph()
+        G.add_edges_from(dag_edges or [])
+        if dataset is not None:
+            G.add_nodes_from(dataset.columns.tolist())
+        
+        if nx.is_directed_acyclic_graph(G):
+            node_order = list(nx.topological_sort(G))
+        else:
+            node_order = sorted(list(G.nodes()))
+        
+        param_positions = {}
+        current_pos = 0
+        
+        for node in node_order:
+            param_positions[node] = {}
+            
+            if dataset is not None and node in dataset.columns:
+                n_classes = dataset[node].nunique()
+            else:
+                n_classes = 2  
+            
+            parents = list(G.predecessors(node))
+            n_parents = len(parents)
+            
+            intercept_size = n_classes
+            param_positions[node]['intercept'] = (current_pos, current_pos + intercept_size)
+            current_pos += intercept_size
+            
+            if n_parents > 0:
+                coef_size = n_classes * n_parents
+                param_positions[node]['coefficients'] = (current_pos, current_pos + coef_size)
+                current_pos += coef_size
+        
+        total_params = current_pos
+        
+        return node_order, param_positions, total_params
+    
+    def create_beta_ordering_with_metadata(self, dag_edges, dataset):
+        """
+        Create canonical ordering for beta parameters AND extract metadata.
+        This ensures all clients flatten their betas in the same order.
+        
+        Returns:
+            node_order: list of node names in topological order
+            param_positions: dict mapping node -> {'intercept': (start, end), 'coefficients': (start, end)}
+            total_params: total number of scalar parameters
+            beta_metadata: dict mapping node -> {'parents': list, 'classes': list}
+        """
+        import networkx as nx
+        
+        G = nx.DiGraph()
+        G.add_edges_from(dag_edges or [])
+        if dataset is not None:
+            G.add_nodes_from(dataset.columns.tolist())
+        
+        if nx.is_directed_acyclic_graph(G):
+            node_order = list(nx.topological_sort(G))
+        else:
+            node_order = sorted(list(G.nodes()))
+        
+        param_positions = {}
+        beta_metadata = {}  
+        current_pos = 0
+        
+        for node in node_order:
+            param_positions[node] = {}
+            parents = list(G.predecessors(node))
+            
+            if dataset is not None and node in dataset.columns:
+                classes = sorted(dataset[node].unique())
+                n_classes = len(classes)
+            else:
+                classes = [0, 1] 
+                n_classes = 2
+            
+            beta_metadata[node] = {
+                'parents': [str(p) for p in parents],
+                'classes': [str(c) for c in classes]
+            }
+            
+            intercept_size = n_classes
+            param_positions[node]['intercept'] = (current_pos, current_pos + intercept_size)
+            current_pos += intercept_size
+            
+            if len(parents) > 0:
+                coef_size = n_classes * len(parents)
+                param_positions[node]['coefficients'] = (current_pos, current_pos + coef_size)
+                current_pos += coef_size
+        
+        total_params = current_pos
+        
+        return node_order, param_positions, total_params, beta_metadata
+    
+    def flatten_betas(self, betas_dict, node_order, param_positions, total_params):
+        """
+        Converts beta parameters dictionary to fixed-order vector.
+        
+        Args:
+            betas_dict: dict with structure {node: {'intercept': array, 'coefficients': array, ...}}
+            node_order: canonical node ordering
+            param_positions: parameter position mapping
+            total_params: total vector length
+            
+        Returns:
+            flat_vector: numpy array of all parameters in canonical order
+        """
+        import numpy as np
+        
+        flat_vector = np.zeros(total_params)
+        
+        for node in node_order:
+            if node not in betas_dict:
+                continue
+                
+            node_params = betas_dict[node]
+            
+            if 'intercept' in node_params and 'intercept' in param_positions[node]:
+                start, end = param_positions[node]['intercept']
+                intercept = np.array(node_params['intercept']).flatten()
+                expected_size = end - start
+                if len(intercept) < expected_size:
+                    intercept = np.pad(intercept, (0, expected_size - len(intercept)), mode='constant', constant_values=0)
+                elif len(intercept) > expected_size:
+                    intercept = intercept[:expected_size]
+                flat_vector[start:end] = intercept
+            
+            if 'coefficients' in node_params and 'coefficients' in param_positions[node]:
+                start, end = param_positions[node]['coefficients']
+                coef = np.array(node_params['coefficients']).flatten()
+                expected_size = end - start
+                if len(coef) < expected_size:
+                    coef = np.pad(coef, (0, expected_size - len(coef)), mode='constant', constant_values=0)
+                elif len(coef) > expected_size:
+                    coef = coef[:expected_size]
+                flat_vector[start:end] = coef
+        
+        return flat_vector
+    
+    def unflatten_betas(self, flat_vector, node_order, param_positions, beta_metadata=None):
+        """
+        Convert flat vector back to beta parameters dictionary.
+        
+        Args:
+            flat_vector: numpy array or list of parameters
+            node_order: canonical node ordering
+            param_positions: parameter position mapping
+            beta_metadata: optional dict mapping node -> {'parents': list, 'classes': list}
+            
+        Returns:
+            betas_dict: dict with structure {node: {'intercept': array, 'coefficients': array, 'parents': list, 'classes': array}}
+        """
+        import numpy as np
+        
+        aggregated_betas = {}
+        
+        for node in node_order:
+            node_params = {}
+            
+            if 'intercept' in param_positions[node]:
+                start, end = param_positions[node]['intercept']
+                intercept = flat_vector[start:end]
+                node_params['intercept'] = np.array(intercept)
+            
+            if 'coefficients' in param_positions[node]:
+                start, end = param_positions[node]['coefficients']
+                coef_flat = flat_vector[start:end]
+                
+                n_classes = len(node_params['intercept'])
+                n_values = end - start
+                n_parents = n_values // n_classes
+                
+                coef = np.array(coef_flat).reshape(n_classes, n_parents)
+                node_params['coefficients'] = coef
+            
+            if beta_metadata is not None and node in beta_metadata:
+                node_params['parents'] = beta_metadata[node]['parents']
+                node_params['classes'] = np.array(beta_metadata[node]['classes'])
+            
+            aggregated_betas[node] = node_params
+        
+        return aggregated_betas

@@ -1,0 +1,63 @@
+2026-03-25 08:39:34,193 CRIT Supervisor is running as root.  Privileges were not dropped because no user is specified in the config file.  If you intend to run as root, you can set user=root in the config file to avoid this message.
+2026-03-25 08:39:34,195 INFO supervisord started with pid 7
+2026-03-25 08:39:35,199 INFO spawned: 'app' with pid 8
+2026-03-25 08:39:35,202 INFO spawned: 'nginx' with pid 9
+2026-03-25 08:39:36,258 INFO success: app entered RUNNING state, process has stayed up for > than 1 seconds (startsecs)
+2026-03-25 08:39:36,258 INFO success: nginx entered RUNNING state, process has stayed up for > than 1 seconds (startsecs)
+Bottle v0.13.4 server starting up (using WSGIRefServer())...
+Listening on http://localhost:5000/
+Hit Ctrl-C to quit.
+
+[WEB] GET /
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/site-packages/bottle.py", line 996, in _handle
+    out = route.call(**args)
+  File "/usr/local/lib/python3.10/site-packages/bottle.py", line 2026, in wrapper
+    rv = callback(*a, **ka)
+  File "/usr/local/lib/python3.10/site-packages/FeatureCloud/app/api/http_web.py", line 16, in index
+    return f'State: {app.current_state.name}'
+AttributeError: 'NoneType' object has no attribute 'name'
+<h1>Critical error while processing request: /</h1>Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/site-packages/bottle.py", line 1113, in wsgi
+    start_response(response._wsgi_status_line(), response.headerlist, exc_info)
+  File "/usr/local/lib/python3.10/site-packages/bottle.py", line 723, in start_response
+    _raise(*exc_info)
+  File "/usr/local/lib/python3.10/site-packages/bottle.py", line 119, in _raise
+    raise a[0](a[1]).with_traceback(a[2])
+  File "/usr/local/lib/python3.10/site-packages/bottle.py", line 996, in _handle
+    out = route.call(**args)
+  File "/usr/local/lib/python3.10/site-packages/bottle.py", line 2026, in wrapper
+    rv = callback(*a, **ka)
+  File "/usr/local/lib/python3.10/site-packages/FeatureCloud/app/api/http_web.py", line 16, in index
+    return f'State: {app.current_state.name}'
+AttributeError: 'NoneType' object has no attribute 'name'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/site-packages/bottle.py", line 996, in _handle
+    out = route.call(**args)
+  File "/usr/local/lib/python3.10/site-packages/bottle.py", line 736, in mountpoint_wrapper
+    body = app(request.environ, start_response)
+  File "/usr/local/lib/python3.10/site-packages/bottle.py", line 1133, in __call__
+    return self.wsgi(environ, start_response)
+  File "/usr/local/lib/python3.10/site-packages/bottle.py", line 1128, in wsgi
+    start_response('500 INTERNAL SERVER ERROR', headers, sys.exc_info())
+  File "/usr/local/lib/python3.10/site-packages/bottle.py", line 723, in start_response
+    _raise(*exc_info)
+  File "/usr/local/lib/python3.10/site-packages/bottle.py", line 119, in _raise
+    raise a[0](a[1]).with_traceback(a[2])
+  File "/usr/local/lib/python3.10/site-packages/bottle.py", line 1113, in wsgi
+    start_response(response._wsgi_status_line(), response.headerlist, exc_info)
+  File "/usr/local/lib/python3.10/site-packages/bottle.py", line 723, in start_response
+    _raise(*exc_info)
+  File "/usr/local/lib/python3.10/site-packages/bottle.py", line 119, in _raise
+    raise a[0](a[1]).with_traceback(a[2])
+  File "/usr/local/lib/python3.10/site-packages/bottle.py", line 996, in _handle
+    out = route.call(**args)
+  File "/usr/local/lib/python3.10/site-packages/bottle.py", line 2026, in wrapper
+    rv = callback(*a, **ka)
+  File "/usr/local/lib/python3.10/site-packages/FeatureCloud/app/api/http_web.py", line 16, in index
+    return f'State: {app.current_state.name}'
+AttributeError: 'NoneType' object has no attribute 'name'
+127.0.0.1 - - [25/Mar/2026 08:40:53] "GET /web/ HTTP/1.0" 500 752

@@ -1,19 +1,94 @@
 (() => {
   const visEl  = document.querySelector(".visualization");
   const descEl = document.querySelector(".node_desc");
+  const normalizeEdgeList = (edgeLike) => {
+    if (!Array.isArray(edgeLike)) return [];
+    return edgeLike
+      .map((e) => {
+        if (Array.isArray(e) && e.length >= 2) {
+          return { from: String(e[0]), to: String(e[1]) };
+        }
+        if (e && typeof e === "object") {
+          return { from: String(e.from ?? e.source), to: String(e.to ?? e.target) };
+        }
+        return null;
+      })
+      .filter((e) => e && e.from && e.to);
+  };
+  const toObjectMap = (value) => {
+    if (!value) return {};
+    if (typeof value === "string") {
+      try {
+        return toObjectMap(JSON.parse(value));
+      } catch (_) {
+        return {};
+      }
+    }
+    if (Array.isArray(value)) {
+      const out = {};
+      for (const item of value) {
+        if (!item || typeof item !== "object") continue;
+        const key = item.node ?? item.id ?? item.name;
+        const params = item.params ?? item.value ?? item.beta ?? item;
+        if (key !== undefined) out[String(key)] = params;
+      }
+      return out;
+    }
+    if (typeof value === "object") return value;
+    return {};
+  };
+  const resolveBetaParams = (obj) => {
+    const directCandidates = [
+      obj?.beta_parameters,
+      obj?.global_betas,
+      obj?.betas,
+      obj?.parameters,
+      obj?.params,
+      obj?.model_params,
+      obj?.final_global_params,
+      obj?.final_local_params,
+    ];
+    for (const c of directCandidates) {
+      const mapped = toObjectMap(c);
+      if (Object.keys(mapped).length) return mapped;
+    }
+    const nestedCandidates = [obj?.network, obj?.model, obj?.result, obj?.payload];
+    for (const n of nestedCandidates) {
+      if (!n || typeof n !== "object") continue;
+      const mapped = resolveBetaParams(n);
+      if (Object.keys(mapped).length) return mapped;
+    }
+    return {};
+  };
   const raw = sessionStorage.getItem("bayestitch_network");
   if (!raw) {
     descEl.innerHTML = `<div style="opacity:.6;font-size:14px;">No network found. Go back and upload a JSON/CSV first.</div>`;
     return;
   }
   const bn = JSON.parse(raw);
-  const nodes = bn.nodes.map((n) => ({
-    id:          String(n.id),
-    label:       n.label ?? n.id,
-    states:      Array.isArray(n.states) ? n.states : undefined,
-    description: n.description ?? "",
-  }));
-  const edges = bn.edges.map((e) => ({ from: String(e.from), to: String(e.to) }));
+  const betaParams = resolveBetaParams(bn);
+  const edges = normalizeEdgeList(
+    bn?.dag?.edges ?? bn.dag_edges ?? bn.global_dag_edges ?? bn.edges ?? []
+  );
+  const baseNodes = Array.isArray(bn.nodes) ? bn.nodes : [];
+  const nodeIds = new Set(baseNodes.map((n) => String(n.id ?? n.name ?? n.label)));
+  edges.forEach((e) => {
+    nodeIds.add(e.from);
+    nodeIds.add(e.to);
+  });
+  Object.keys(betaParams || {}).forEach((nid) => nodeIds.add(String(nid)));
+  const nodes = [...nodeIds].map((id) => {
+    const existing = baseNodes.find((n) => String(n.id ?? n.name ?? n.label) === id) || {};
+    const beta = betaParams?.[id];
+    return {
+      id: String(id),
+      label: existing.label ?? existing.id ?? id,
+      states: Array.isArray(existing.states)
+        ? existing.states.map(String)
+        : (Array.isArray(beta?.classes) ? beta.classes.map(String) : undefined),
+      description: existing.description ?? "",
+    };
+  });
   const byId       = new Map(nodes.map((n) => [n.id, n]));
   const parentsOf  = new Map(nodes.map((n) => [n.id, []]));
   const childrenOf = new Map(nodes.map((n) => [n.id, []]));
@@ -38,12 +113,17 @@
     }
     return combo.split(",").map((v) => v.trim());
   }
+  function asArray(v) { return Array.isArray(v) ? v : (typeof v === "number" ? [v] : []); }
   function getNodeStates(nodeId) {
-    const n   = byId.get(nodeId);
-    if (n?.states?.length) return n.states;
+    const n = byId.get(nodeId);
+    if (Array.isArray(n?.states) && n.states.length) return n.states.map(String);
     const cpt = bn.cpts?.[nodeId];
-    if (cpt?.states?.length) return cpt.states;
-    return ["T", "F"];
+    if (Array.isArray(cpt?.states) && cpt.states.length) return cpt.states.map(String);
+    const b = betaParams?.[nodeId];
+    if (Array.isArray(b?.classes) && b.classes.length) return b.classes.map(String);
+    const inter = asArray(b?.intercept);
+    if (inter.length > 1) return inter.map((_, i) => String(i));
+    return ["0", "1"];
   }
   function defaultFill(nodeId) {
     return bn.cpts?.[nodeId] ? "#fbc5bb" : "#e0e0e0";
@@ -52,10 +132,10 @@
     const cpt = bn.cpts?.[nodeId];
     if (!cpt || !cpt.cpt) return null;
     const parents = Array.isArray(cpt.parents) ? cpt.parents : [];
-    const states  = Array.isArray(cpt.states)  ? cpt.states  : ["T", "F"];
+    const states = Array.isArray(cpt.states) ? cpt.states : getNodeStates(nodeId);
     let prob = null;
     for (const [combo, probs] of Object.entries(cpt.cpt)) {
-      const vals    = parseCombo(combo);
+      const vals = parseCombo(combo);
       const matches = parents.every((pid, i) => {
         const av = assignment[pid];
         return av === undefined || String(vals[i]) === String(av);
@@ -74,11 +154,87 @@
     }
     return prob;
   }
+  function normalizeProbabilities(probs, expectedLen) {
+    const arr = asArray(probs).map((v) => +v);
+    const safe = arr.filter((v) => Number.isFinite(v) && v >= 0);
+    if (!safe.length) return Array.from({ length: expectedLen }, () => 1 / expectedLen);
+    let out = safe;
+    if (safe.length !== expectedLen) {
+      if (safe.length === 1 && expectedLen === 2) out = [1 - safe[0], safe[0]];
+      else if (safe.length < expectedLen) out = [...safe, ...Array.from({ length: expectedLen - safe.length }, () => 0)];
+      else out = safe.slice(0, expectedLen);
+    }
+    const sum = out.reduce((a, b) => a + b, 0);
+    if (sum <= 0) return Array.from({ length: expectedLen }, () => 1 / expectedLen);
+    return out.map((v) => v / sum);
+  }
+  function softmax(logits) {
+    const max = Math.max(...logits);
+    const exps = logits.map((v) => Math.exp(v - max));
+    const sum = exps.reduce((a, b) => a + b, 0) || 1;
+    return exps.map((v) => v / sum);
+  }
+  function encodeValueForParent(parentId, value) {
+    if (value === undefined || value === null) return 0;
+    if (typeof value === "number") return value;
+    const n = Number(value);
+    if (Number.isFinite(n)) return n;
+    const states = getNodeStates(parentId);
+    const idx = states.indexOf(String(value));
+    return idx >= 0 ? idx : 0;
+  }
+  function predictNodeDistribution(nodeId, assignment) {
+    const states = getNodeStates(nodeId);
+    const b = betaParams?.[nodeId];
+    if (!b) return normalizeProbabilities([], states.length);
+    if (!Array.isArray(b.coefficients)) {
+      return normalizeProbabilities(b.intercept, states.length);
+    }
+    const parents = Array.isArray(b.parents) ? b.parents : [];
+    const coeff = b.coefficients.map((row) => asArray(row).map((v) => +v));
+    const inter = asArray(b.intercept).map((v) => +v);
+    const x = parents.map((pid) => encodeValueForParent(pid, assignment[pid]));
+    if (coeff.length === 1) {
+      const row = coeff[0];
+      const score = row.reduce((sum, c, i) => sum + c * (x[i] ?? 0), 0) + (inter[0] ?? 0);
+      const p1 = 1 / (1 + Math.exp(-score));
+      return normalizeProbabilities([1 - p1, p1], states.length);
+    }
+    const logits = coeff.map((row, r) =>
+      row.reduce((sum, c, i) => sum + c * (x[i] ?? 0), 0) + (inter[r] ?? 0)
+    );
+    return normalizeProbabilities(softmax(logits), states.length);
+  }
+  function getStateProbability(nodeId, stateVal, assignment) {
+    const cptProb = cptLookup(nodeId, stateVal, assignment);
+    if (cptProb !== null && Number.isFinite(cptProb)) return cptProb;
+    const states = getNodeStates(nodeId);
+    const probs = predictNodeDistribution(nodeId, assignment);
+    const idx = states.indexOf(String(stateVal));
+    if (idx < 0) return 0;
+    return probs[idx] ?? 0;
+  }
+  function topologicalNodeIds() {
+    const ids = nodes.map((n) => n.id);
+    const indeg = new Map(ids.map((id) => [id, 0]));
+    for (const e of edges) indeg.set(e.to, (indeg.get(e.to) ?? 0) + 1);
+    const q = ids.filter((id) => (indeg.get(id) ?? 0) === 0);
+    const out = [];
+    while (q.length) {
+      const u = q.shift();
+      out.push(u);
+      for (const c of childrenOf.get(u) ?? []) {
+        indeg.set(c, (indeg.get(c) ?? 0) - 1);
+        if ((indeg.get(c) ?? 0) === 0) q.push(c);
+      }
+    }
+    return out.length === ids.length ? out : ids;
+  }
   function jointProb(assignment) {
     let p = 1;
-    for (const n of nodes) {
-      const prob = cptLookup(n.id, assignment[n.id], assignment);
-      if (prob === null) return null;
+    for (const nodeId of topologicalNodeIds()) {
+      const prob = getStateProbability(nodeId, assignment[nodeId], assignment);
+      if (!Number.isFinite(prob)) return null;
       p *= prob;
     }
     return p;
@@ -458,36 +614,65 @@
     const evidence = getEvidenceFromPanel();
     const resultEl = document.getElementById("inf_result");
     resultEl.innerHTML = `<div style="opacity:.5;font-size:13px;">Computing…</div>`;
-    setTimeout(() => {
-      const result    = inferByEnumeration(queryId, evidence);
-      const queryNode = byId.get(queryId);
-      if (!result) {
+    
+    const hiddenCount = nodes.filter(n => n.id !== queryId && !evidence[n.id]).length;
+    const avgStates = nodes.reduce((sum, n) => sum + (getNodeStates(n.id).length || 2), 0) / nodes.length;
+    const complexity = Math.pow(avgStates, hiddenCount);
+    const COMPLEXITY_THRESHOLD = 1e6;
+    
+    setTimeout(async () => {
+      try {
+        let result;
+        let method = "Exact Enumeration";
+        
+        if (complexity >= COMPLEXITY_THRESHOLD && typeof window.performVariableElimination === 'function') {
+          method = "Algorithm: Variable Elimination";
+          console.log(`Using Variable Elimination - complexity: ${complexity.toExponential(2)}`);
+          result = window.performVariableElimination(bn, queryId, evidence);
+        } else {
+          console.log(`Using exact enumeration - complexity: ${complexity.toExponential(2)}`);
+          result = inferByEnumeration(queryId, evidence);
+        }
+        
+        const queryNode = byId.get(queryId);
+        if (!result) {
+          resultEl.innerHTML = `
+            <div style="color:#c0392b;font-size:12px;padding:6px 0;">
+              Could not compute inference for this selection.
+            </div>`;
+          return;
+        }
+        const evidenceCount = Object.keys(evidence).length;
+        const condStr = evidenceCount
+          ? ` | ${evidenceCount} node${evidenceCount > 1 ? "s" : ""} observed`
+          : "";
+        const bars = Object.entries(result).map(([state, prob]) => {
+          const pct = (prob * 100).toFixed(1);
+          return `
+            <div class="res-row">
+              <div class="res-label">${escapeHtml(state)}</div>
+              <div class="res-bar-wrap"><div class="res-bar" style="width:${pct}%"></div></div>
+              <div class="res-pct">${pct}%</div>
+            </div>
+          `;
+        }).join("");
         resultEl.innerHTML = `
-          <div style="color:#c0392b;font-size:12px;padding:6px 0;">
-            Could not compute — ensure all nodes have CPTs in your JSON.
-          </div>`;
-        return;
-      }
-      const evidenceCount = Object.keys(evidence).length;
-      const condStr = evidenceCount
-        ? ` | ${evidenceCount} node${evidenceCount > 1 ? "s" : ""} observed`
-        : "";
-      const bars = Object.entries(result).map(([state, prob]) => {
-        const pct = (prob * 100).toFixed(1);
-        return `
-          <div class="res-row">
-            <div class="res-label">${escapeHtml(state)}</div>
-            <div class="res-bar-wrap"><div class="res-bar" style="width:${pct}%"></div></div>
-            <div class="res-pct">${pct}%</div>
+          <div style="font-size:12px;opacity:.6;margin-bottom:8px;">
+            P(<strong>${escapeHtml(queryNode.label ?? queryId)}</strong>${escapeHtml(condStr)})
+          </div>
+          ${bars}
+          <div style="font-size:10px;opacity:.35;margin-top:6px;">
+            ${method}
           </div>
         `;
-      }).join("");
-      resultEl.innerHTML = `
-        <div style="font-size:12px;opacity:.6;margin-bottom:8px;">
-          P(<strong>${escapeHtml(queryNode.label ?? queryId)}</strong>${escapeHtml(condStr)})
-        </div>
-        ${bars}
-      `;
+      } catch (error) {
+        console.error("Inference error:", error);
+        resultEl.innerHTML = `
+          <div style="color:#c0392b;font-size:12px;padding:6px 0;">
+            Error: ${escapeHtml(error.message || String(error))}
+          </div>
+        `;
+      }
     }, 20);
   });
   if (currentQueryId) {
